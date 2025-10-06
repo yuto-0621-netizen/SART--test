@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>SARTテスト</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; padding: 20px; }
+    h1 { font-size: 28px; margin-bottom: 10px; }
+    #instructions { margin: 20px auto; max-width: 700px; text-align: left; font-size: 16px; }
+    #formSection, #stimulus, #downloadButton, #countdown, #restartButton { display: none; margin-top: 20px; }
+    #stimulus { font-size: 100px; margin: 100px 0; }
+    input { font-size: 16px; padding: 5px; margin: 5px; }
+    button { font-size: 18px; padding: 10px 20px; margin: 10px; }
+  </style>
+</head>
+<body>
+
+  <h1>SART（持続的注意課題）テスト</h1>
+
+  <div id="instructions">
+    <h2>【テストの説明】</h2>
+    <p>
+      このテストは、数字（1〜9）が連続して画面に表示される中で、<strong>「3」以外</strong>の数字が出たときにスペースキーを押し、
+      <strong>「3」が出たときには押さない</strong>というルールで行います。
+    </p>
+    <ul>
+      <li>数字は約1秒ごとに表示されます。</li>
+      <li>試行数は固定で200回です。</li>
+      <li>反応速度や正確さが記録され、終了後にCSVファイルとして保存できます。</li>
+    </ul>
+    <p style="color: red;">落ち着いて集中し、できるだけ正確に反応してください。</p>
+    <button id="showFormButton">試験開始</button>
+    <button id="practiceButton">練習用</button>
+  </div>
+
+  <div id="formSection">
+    <p>氏名: <input type="text" id="username" placeholder="例: 山田太郎"></p>
+    <p>実験回数: <input type="text" id="experimentId" placeholder="例: A-1, 1回目など"></p>
+    <button id="startButton">テストを開始</button>
+  </div>
+
+  <div id="countdown"></div>
+  <div id="stimulus"></div>
+  <button id="downloadButton">CSVをダウンロード</button>
+  <button id="restartButton">最初の画面に戻る</button>
+
+  <script>
+    const showFormButton = document.getElementById('showFormButton');
+    const practiceButton = document.getElementById('practiceButton');
+    const startButton = document.getElementById('startButton');
+    const formSection = document.getElementById('formSection');
+    const instructions = document.getElementById('instructions');
+    const stimulusDiv = document.getElementById('stimulus');
+    const downloadButton = document.getElementById('downloadButton');
+    const countdownDiv = document.getElementById('countdown');
+    const restartButton = document.getElementById('restartButton');
+
+    let TRIAL_TOTAL = 200;
+    let isPractice = false;
+
+    let trials = [], current = 0, startTime, responseData = [], goCount = 0, noGoCount = 0;
+    let correctGo = 0, correctNoGo = 0, falseAlarms = 0, misses = 0, rtList = [];
+    let isGo, awaitingResponse = false;
+
+    showFormButton.onclick = () => {
+      instructions.style.display = "none";
+      formSection.style.display = "block";
+    };
+
+    practiceButton.onclick = () => {
+      isPractice = true;
+      TRIAL_TOTAL = 20;
+      instructions.style.display = "none";
+      formSection.style.display = "none";
+      startCountdown();
+    };
+
+    startButton.onclick = () => {
+      const user = document.getElementById('username').value.trim();
+      const expId = document.getElementById('experimentId').value.trim();
+      if (!user || !expId) return alert("氏名と実験回数を入力してください。");
+      isPractice = false;
+      TRIAL_TOTAL = 200;
+      formSection.style.display = "none";
+      startCountdown();
+    };
+
+    function startCountdown() {
+      let count = 3;
+      countdownDiv.style.display = "block";
+      countdownDiv.innerText = count;
+      const interval = setInterval(() => {
+        count--;
+        if (count <= 0) {
+          clearInterval(interval);
+          countdownDiv.style.display = "none";
+          startExperiment();
+        } else {
+          countdownDiv.innerText = count;
+        }
+      }, 1000);
+    }
+
+    function startExperiment() {
+      trials = [];
+      current = 0;
+      responseData = [];
+      goCount = 0;
+      noGoCount = 0;
+      correctGo = 0;
+      correctNoGo = 0;
+      falseAlarms = 0;
+      misses = 0;
+      rtList = [];
+      generateTrials(TRIAL_TOTAL);
+      runTrial();
+    }
+
+    function generateTrials(n) {
+      const digits = [1,2,3,4,5,6,7,8,9];
+      let prev = -1;
+      for (let i = 0; i < n; i++) {
+        let num;
+        do {
+          num = digits[Math.floor(Math.random() * digits.length)];
+        } while (num === prev);
+        prev = num;
+        trials.push(num);
+      }
+    }
+
+    function runTrial() {
+      if (current >= trials.length) return endExperiment();
+
+      const num = trials[current];
+      isGo = num !== 3;
+      if (isGo) goCount++; else noGoCount++;
+
+      stimulusDiv.innerText = num;
+      stimulusDiv.style.display = "block";
+      awaitingResponse = true;
+      startTime = performance.now();
+
+      setTimeout(() => {
+        if (awaitingResponse) {
+          if (isGo) misses++; else correctNoGo++;
+          responseData.push({trial: current + 1, digit: num, response: "なし", RT: "", correct: !isGo});
+          current++;
+          stimulusDiv.style.display = "none";
+          setTimeout(runTrial, 800);
+        }
+      }, 500);
+    }
+
+    document.addEventListener("keydown", (e) => {
+      if (!awaitingResponse || e.key !== " ") return;
+
+      const rt = Math.round(performance.now() - startTime);
+      rtList.push(rt);
+
+      if (isGo) {
+        correctGo++;
+        responseData.push({trial: current + 1, digit: trials[current], response: "押した", RT: rt, correct: true});
+      } else {
+        falseAlarms++;
+        responseData.push({trial: current + 1, digit: trials[current], response: "押した", RT: rt, correct: false});
+      }
+
+      awaitingResponse = false;
+      stimulusDiv.style.display = "none";
+      current++;
+      setTimeout(runTrial, 800);
+    });
+
+    function endExperiment() {
+      stimulusDiv.innerText = "終了しました";
+      downloadButton.style.display = isPractice ? "none" : "inline-block";
+      restartButton.style.display = "inline-block";
+
+      if (!isPractice) {
+        const total = trials.length;
+        const accuracy = ((correctGo + correctNoGo) / total * 100).toFixed(1);
+        const goAccuracy = (correctGo / goCount * 100).toFixed(1);
+        const noGoAccuracy = (correctNoGo / noGoCount * 100).toFixed(1);
+        const rtMean = Math.round(rtList.reduce((a,b)=>a+b,0) / rtList.length || 0);
+        const rtVar = Math.round(rtList.reduce((a,b)=>a+(b-rtMean)**2,0) / rtList.length || 0);
+
+        responseData.unshift({
+          trial: "統計",
+          digit: "",
+          response: "",
+          RT: "",
+          correct: "",
+          "全体正答率(%)": accuracy,
+          "Go正答率(%)": goAccuracy,
+          "NoGo正答率(%)": noGoAccuracy,
+          "平均RT(ms)": rtMean,
+          "RT分散": rtVar,
+          "Go試行数": goCount,
+          "NoGo試行数": noGoCount,
+          "正Go反応": correctGo,
+          "正NoGo抑制": correctNoGo,
+          "Miss": misses,
+          "FalseAlarm": falseAlarms
+        });
+      }
+    }
+
+    downloadButton.onclick = () => {
+      const user = document.getElementById('username').value.trim();
+      const expId = document.getElementById('experimentId').value.trim();
+      let csv = '\uFEFF' + Object.keys(responseData[0]).join(",") + "\n";
+      responseData.forEach(row => {
+        csv += Object.values(row).join(",") + "\n";
+      });
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${user}_SART_実験${expId}_data.csv`;
+      a.click();
+    };
+
+    restartButton.onclick = () => {
+      location.reload();
+    };
+  </script>
+</body>
+</html>
